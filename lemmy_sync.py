@@ -96,22 +96,39 @@ class PostList:
             line = f.readline()
             while line != None:
                 posts.append(Post(api, json.loads(line)))
-                f.readline()
+                line = f.readline()
         return PostList(api, posts)
 
+    @staticmethod
+    def load_ids_from_file(file_name: str):
+        ids = []
+        if not os.path.exists(file_name):
+            return ids
+        with open(file_name, 'r', encoding='utf-8') as f:
+            line = f.readline()
+            while line != None:
+                data = json.loads(line)
+                ids.append(data['id'])
+                line = f.readline()
+        return ids
+
     def save_to_file(self, file_name: str):
-        with open(file_name, 'w', encoding='utf-8') as f:
+        with open(file_name, 'a', encoding='utf-8') as f:
             for post in self.posts:
                 f.write(post.json + '\n')
 
 def sync_community(api: LemmyApi, community: str, max_page: int):
     saved_posts_file = f'{community}.jsonl'
-    saved_posts = PostList.load_from_file(saved_posts_file, api)
+    saved_ids = PostList.load_ids_from_file(saved_posts_file)
+    new_posts = PostList(api, [])
     for page in range(1, max_page):
         posts_for_page = api.get_posts(community, 'New', page)
-        print(f'{community}: page {page} returned {len(posts_for_page.posts)} posts')
-        saved_posts.add_to_posts(posts_for_page)
-    saved_posts.save_to_file(saved_posts_file)
+        print(f'{community}: page {page} returned {len(posts_for_page)} posts')
+        for post in posts_for_page:
+            if post['post']['id'] in saved_ids:
+                continue
+            new_posts.add_to_posts([post])
+    new_posts.save_to_file(saved_posts_file)
 
 def sync_communities(api: LemmyApi, communities: List[str], max_page: int):
     for community in communities:
@@ -120,7 +137,7 @@ def sync_communities(api: LemmyApi, communities: List[str], max_page: int):
 base_url = 'https://reddthat.com/api/v3'
 
 max_page = 5
-sync_interval = 24 * 60 * 60
+sync_interval = 12 * 60 * 60
 request_interval = 30
 
 api = LemmyApi(base_url, request_interval)
