@@ -6,18 +6,23 @@ from typing import List
 from urllib import parse
 
 class LemmyApi:
-    def __init__(self, base_url: str, request_interval: int):
+    def __init__(self, base_url: str, request_interval: int, list_limit: int):
         self.base_url = base_url
         self.last_request = time()
+        self.list_limit = list_limit
         self.request_interval = request_interval
+        self.requests = []
 
     def get_api(self, path: str, query: dict, raw = False):
-        print(f'Getting from api {path}')
+        now = time().strftime("%m/%d/%Y, %H:%M:%S")
+        print(f'{now}: Getting from api {path} with query {query}')
         time_diff = time() - self.last_request
         if time_diff < self.request_interval:
             sleep(self.request_interval - time_diff)
         self.last_request = time()
-        res = requests.get(f'{self.base_url}/{path}?{parse.urlencode(query)}')
+        url = f'{self.base_url}/{path}?{parse.urlencode(query)}'
+        self.requests.append({ "date": now, "url": url })
+        res = requests.get(url)
         if res.status_code != 200:
             raise Exception(f'API returned {res.status_code}: {res.content.decode()}')
         content = res.content.decode()
@@ -31,11 +36,11 @@ class LemmyApi:
     def get_community_info(self, name: str):
         return self.get_api('community', { 'name': name })
 
-    def get_posts(self, community: str, sort: str = 'New', page: int = 1, limit: int = 50) -> List[dict]:
+    def get_posts(self, community: str, sort: str = 'New', page: int = 1) -> List[dict]:
         return self.get_api('post/list', {
             'community': community,
             'page': page,
-            'limit': limit,
+            'limit': self.list_limit,
             'sort': sort
         })['posts']
     
@@ -44,6 +49,12 @@ class LemmyApi:
             'post_id': post_id,
             'community_name': community
         })['comments']
+    
+    def save_requests(self, file_name: str):
+        with open(file_name, 'a', encoding='utf-8') as f:
+            for req in self.requests:
+                f.write(json.dumps(req) + '\n')
+        self.requests = []
 
 class Comment:
     def __init__(self, data: dict):
@@ -118,7 +129,7 @@ class PostList:
                 f.write(post.json + '\n')
 
 def sync_community(api: LemmyApi, community: str, max_page: int):
-    saved_posts_file = f'{community}.jsonl'
+    saved_posts_file = f'data/{community}.jsonl'
     saved_ids = PostList.load_ids_from_file(saved_posts_file)
     new_posts = PostList(api, [])
     for page in range(1, max_page):
@@ -132,20 +143,30 @@ def sync_community(api: LemmyApi, community: str, max_page: int):
 
 def sync_communities(api: LemmyApi, communities: List[str], max_page: int):
     for community in communities:
-        sync_community(api, community, max_page)
+        try:
+            sync_community(api, community, max_page)
+        except Exception as e:
+            print(e)
+            sleep(1)
 
 base_url = 'https://reddthat.com/api/v3'
+requests_file = 'data/requests.jsonl'
 
-max_page = 5
+max_page = 2
+list_limit = 5
 sync_interval = 12 * 60 * 60
 request_interval = 30
 
-api = LemmyApi(base_url, request_interval)
+api = LemmyApi(base_url, request_interval, list_limit)
 
 communities = [
     'technology@lemmy.world'
 ]
 
+if not os.path.exists('data'):
+    os.mkdir('data')
+
 while True:
-    sync_communities(communities, max_page)
+    sync_communities(api, communities, max_page)
+    api.save_requests(requests_file)
     sleep(sync_interval)
