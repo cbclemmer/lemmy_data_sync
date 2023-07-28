@@ -157,7 +157,7 @@ class PostList:
             for post in self.posts:
                 f.write(post.json + '\n')
 
-def sync_community(api: LemmyApi, community: str, max_page: int):
+def sync_community(api: LemmyApi, community: str, max_page: int, min_post_age: int):
     saved_posts_file = f'data/{community}.jsonl'
     saved_ids = PostList.load_ids_from_file(saved_posts_file)
     print(f'Loaded {len(saved_ids)} ids from {saved_posts_file}')
@@ -171,16 +171,16 @@ def sync_community(api: LemmyApi, community: str, max_page: int):
                 continue
             date = get_date(post['post']['published'])
             diff = now - date
-            if diff.days < 1: # Wait until one day has post so comments can be posted
+            if diff.hours < min_post_age: # Wait until one day has post so comments can be posted
                 continue
             new_posts.add_to_posts([post])
     print(f'Saving {len(new_posts.posts)} new posts to {saved_posts_file}')
     new_posts.save_to_file(saved_posts_file)
 
-def sync_communities(api: LemmyApi, communities: List[str], max_page: int):
+def sync_communities(api: LemmyApi, communities: List[str], max_page: int, min_post_age: int):
     for community in communities:
         try:
-            sync_community(api, community, max_page)
+            sync_community(api, community, max_page, min_post_age)
         except:
             print(traceback.format_exc())
             sleep(10)
@@ -216,6 +216,7 @@ list_limit = get_with_default('list_limit', config, 50)
 sync_interval = get_with_default('sync_interval', config, 12)
 sync_interval = int(sync_interval * 60 * 60)
 request_interval = get_with_default('request_interval', config, 20)
+min_post_age = get_with_default('min_post_age', config, 24)
 
 print(f"""
 Config:
@@ -225,7 +226,8 @@ requests file: {requests_file}
 max page: {max_page}
 list limit: {list_limit}
 sync interval {int(sync_interval / 60 / 60)} hours
-request interval {request_interval} seconds
+request interval: {request_interval} seconds
+minimum post age: {min_post_age} hours
 """)
 
 api = LemmyApi(base_url, request_interval, list_limit)
@@ -235,7 +237,7 @@ if not os.path.exists('data'):
 
 while True:
     print(f'Syncing Communities')
-    sync_communities(api, communities, max_page)
+    sync_communities(api, communities, max_page, min_post_age)
     api.save_requests(requests_file)
     print(f'Communities Synced, sleeping for {sync_interval // (60 * 60)} hours')
     sleep(sync_interval)
