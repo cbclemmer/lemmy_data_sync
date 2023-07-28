@@ -8,21 +8,9 @@ from datetime import datetime
 from typing import List
 from urllib import parse
 
-# https://github.com/LemmyNet/lemmy
-# https://github.com/LemmyNet/lemmy-js-client
-# https://reddthat.com
+# main lemmy repo: https://github.com/LemmyNet/lemmy
+# js client with types for api: https://github.com/LemmyNet/lemmy-js-client
 
-# 2023-07-23T08:20:24.015505
-date_pattern = r"(\d{4})-(\d{2})-(\d{2})"
-def extract_groups(input_string: str, regex_pattern: re) -> List[str]:
-    pattern = re.compile(regex_pattern)
-    match = re.search(pattern, input_string)
-    if match:
-        groups = match.groups()
-        return groups
-    else:
-        return None
-    
 def get_date(date_str: str):
     return datetime.fromisoformat(date_str.split('T')[0])
 
@@ -197,19 +185,50 @@ def sync_communities(api: LemmyApi, communities: List[str], max_page: int):
             print(traceback.format_exc())
             sleep(10)
 
-base_url = 'https://reddthat.com/api/v3'
-requests_file = 'data/requests.jsonl'
+def get_with_default(prop: str, obj: dict, default: any) -> any:
+    if prop in obj:
+        return obj[prop]
+    return default
 
-max_page = 2
-list_limit = 50
-sync_interval = int(12 * 60 * 60)
-request_interval = 20
+def ensure_prop(prop: str, obj: dict):
+    if not prop in obj:
+        raise Exception(f'Could not find required property "{prop}" in config.json')
+    return obj[prop]
+
+config = {}
+if not os.path.exists('config.json'):
+    raise Exception('Could not find config.json')
+
+print('Config file found, reading config...')
+with open('config.json', 'r', encoding='utf-8') as f:
+    config = json.loads(f.read())
+
+
+base_url = ensure_prop('base_url', config)
+if 'api' not in base_url:
+    base_url += '/api/v3'
+
+communities = ensure_prop('communities', config)
+
+requests_file = get_with_default('requests_file', config, 'data/requests.jsonl')
+max_page = get_with_default('max_page', config, 2)
+list_limit = get_with_default('list_limit', config, 50)
+sync_interval = get_with_default('sync_interval', config, 12)
+sync_interval = int(sync_interval * 60 * 60)
+request_interval = get_with_default('request_interval', config, 20)
+
+print(f"""
+Config:
+base url: {base_url}
+communities: {str(communities)}
+requests file: {requests_file}
+max page: {max_page}
+list limit: {list_limit}
+sync interval {int(sync_interval / 60 / 60)} hours
+request interval {request_interval} seconds
+""")
 
 api = LemmyApi(base_url, request_interval, list_limit)
-
-communities = [
-    'technology@lemmy.world'
-]
 
 if not os.path.exists('data'):
     os.mkdir('data')

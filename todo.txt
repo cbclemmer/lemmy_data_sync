@@ -1,0 +1,4 @@
+Move to separate files for each day
+	Ensure that we only sync data when we have an entire days worth content
+Move comments to their own file
+	Compress comments file
