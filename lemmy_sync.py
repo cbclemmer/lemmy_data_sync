@@ -3,6 +3,7 @@ import os
 import traceback
 import json
 import requests
+import gzip
 from time import sleep, time
 from datetime import datetime
 from typing import List
@@ -11,7 +12,7 @@ from urllib import parse
 # main lemmy repo: https://github.com/LemmyNet/lemmy
 # js client with types for api: https://github.com/LemmyNet/lemmy-js-client
 
-def get_date(date_str: str):
+def get_date(date_str: str) -> datetime:
     return datetime.fromisoformat(date_str.split('T')[0])
 
 class LemmyApi:
@@ -107,9 +108,6 @@ class Post:
         if self.comments is not None:
             return
         data = self.api.get_comments(self.id, self.community, self.num_comments)
-        json_data = json.loads(self.json)
-        json_data['comments'] = data
-        self.json = json.dumps(json_data)
         print(f'Loaded {len(data)} comments for post {self.id}')
         self.comments = [Comment(comment) for comment in data]
 
@@ -152,13 +150,48 @@ class PostList:
                 line = f.readline()
         return ids
 
+    def get_posts_for_day(self, start_idx: int):
+        idx = start_idx
+        start_day = get_date(self.posts[idx])
+        day_posts = [self.posts[idx]]
+        while idx < len(self.posts) and start_day == current_day:
+            idx += 1
+            day_posts.append(self.posts[idx])
+            current_day = get_date(self.posts[idx].published).day
+        if start_day == current_day:
+            return ([], -1)
+        return (day_posts, idx)
+
     def save_to_file(self, file_name: str):
+        if len(self.posts) == 0:
+            return
+        # find the day of the begginning of the post list
+        # step index until we hit the first post of the day before
+        (_, idx) = get_posts_for_day(0)
+        if idx == -1:
+            return
+        save_posts = []
+        while idx is not -1:
+            (posts, idx) = get_posts_for_day(idx)
+            if idx == -1:
+                break
+            if len(posts) == 0:
+                continue
+            for p in posts:
+                save_posts.append(p)
+            post_date = get_date(posts[0].published)
+            with open(f'data/comments_{community}_{post_date.year}_{post_date.month}_{post_date.day}.jsonl.gz', 'r', encoding='utf-8') as f:
+                file_data = ''
+                for post in posts:
+                    for comment in post.comments:
+                        file_data += comment.json + '\n'
+                f.write(gzip.compress(file_data.encode()))
         with open(file_name, 'a', encoding='utf-8') as f:
-            for post in self.posts:
+            for post in save_posts:
                 f.write(post.json + '\n')
 
 def sync_community(api: LemmyApi, community: str, max_page: int, min_post_age: int):
-    saved_posts_file = f'data/{community}.jsonl'
+    saved_posts_file = f'data/posts_{community}.jsonl'
     saved_ids = PostList.load_ids_from_file(saved_posts_file)
     print(f'Loaded {len(saved_ids)} ids from {saved_posts_file}')
     new_posts = PostList(api, [], community)
