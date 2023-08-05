@@ -17,11 +17,14 @@ The repository depends on a `config.json` file at the root of the project direct
 ```
 
 ## Files
-There are two types of files created.
+These are the files created by the service. The system waits until it has a full day of posts to save their comment and post data.
 
 #### The requests file
 The file name is taken from the `requests_file` property that stores all request data sent to the server.  
   
 #### The Post data
-each community will have a jsonl file that holds the post and comment data for all the posts that are synced.  
+Each community will have their own jsonl file that holds the post data for all the posts that are synced.  
 In the form of `community.jsonl`.  
+
+#### Comment Data
+Each day a new comment file will be created. The file is compressed using gzip to save space.
