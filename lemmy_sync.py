@@ -5,7 +5,7 @@ import json
 import requests
 import gzip
 from time import sleep, time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 from urllib import parse
 
@@ -99,8 +99,6 @@ class Post:
         if comments is None:
             if 'comments' in data:
                 self.comments = [Comment(comment) for comment in data['comments']]
-            else:
-                self.load_comments()
         else:
             self.comments = comments
 
@@ -152,27 +150,30 @@ class PostList:
 
     def get_posts_for_day(self, start_idx: int):
         idx = start_idx
-        start_day = get_date(self.posts[idx])
+        start_day = get_date(self.posts[idx].published)
+        current_day = start_day
         day_posts = [self.posts[idx]]
         while idx < len(self.posts) and start_day == current_day:
             idx += 1
+            if idx >= len(self.posts):
+                break
             day_posts.append(self.posts[idx])
             current_day = get_date(self.posts[idx].published).day
         if start_day == current_day:
             return ([], -1)
         return (day_posts, idx)
 
-    def save_to_file(self, file_name: str):
+    def save_to_file(self):
         if len(self.posts) == 0:
             return
         # find the day of the begginning of the post list
         # step index until we hit the first post of the day before
-        (_, idx) = get_posts_for_day(0)
+        (_, idx) = self.get_posts_for_day(0)
         if idx == -1:
             return
         save_posts = []
-        while idx is not -1:
-            (posts, idx) = get_posts_for_day(idx)
+        while idx != -1:
+            (posts, idx) = self.get_posts_for_day(idx)
             if idx == -1:
                 break
             if len(posts) == 0:
@@ -180,13 +181,14 @@ class PostList:
             for p in posts:
                 save_posts.append(p)
             post_date = get_date(posts[0].published)
-            with open(f'data/comments_{community}_{post_date.year}_{post_date.month}_{post_date.day}.jsonl.gz', 'r', encoding='utf-8') as f:
+            with open(f'data/comments_{self.community}_{post_date.year}_{post_date.month}_{post_date.day}.jsonl.gz', 'wb') as f:
                 file_data = ''
                 for post in posts:
+                    post.load_comments()
                     for comment in post.comments:
                         file_data += comment.json + '\n'
                 f.write(gzip.compress(file_data.encode()))
-        with open(file_name, 'a', encoding='utf-8') as f:
+        with open(f'data/posts_{self.community}.jsonl', 'a', encoding='utf-8') as f:
             for post in save_posts:
                 f.write(post.json + '\n')
 
@@ -195,7 +197,6 @@ def sync_community(api: LemmyApi, community: str, max_page: int, min_post_age: i
     saved_ids = PostList.load_ids_from_file(saved_posts_file)
     print(f'Loaded {len(saved_ids)} ids from {saved_posts_file}')
     new_posts = PostList(api, [], community)
-    now = datetime.now()
     for page in range(1, max_page + 1):
         posts_for_page = api.get_posts(community, 'New', page)
         print(f'{community}: page {page} returned {len(posts_for_page)} posts')
@@ -203,12 +204,9 @@ def sync_community(api: LemmyApi, community: str, max_page: int, min_post_age: i
             if post['post']['id'] in saved_ids:
                 continue
             date = get_date(post['post']['published'])
-            diff = now - date
-            if diff.hours < min_post_age: # Wait until one day has post so comments can be posted
-                continue
             new_posts.add_to_posts([post])
     print(f'Saving {len(new_posts.posts)} new posts to {saved_posts_file}')
-    new_posts.save_to_file(saved_posts_file)
+    new_posts.save_to_file()
 
 def sync_communities(api: LemmyApi, communities: List[str], max_page: int, min_post_age: int):
     for community in communities:
@@ -235,7 +233,6 @@ if not os.path.exists('config.json'):
 print('Config file found, reading config...')
 with open('config.json', 'r', encoding='utf-8') as f:
     config = json.loads(f.read())
-
 
 base_url = ensure_prop('base_url', config)
 if 'api' not in base_url:
